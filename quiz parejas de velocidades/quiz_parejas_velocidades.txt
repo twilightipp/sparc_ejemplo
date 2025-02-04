@@ -1,0 +1,91 @@
+.global calculate_positions
+.global vector_add
+.global scalar_multiply
+.global vector_subtract
+.global dot_product
+.global vector_norm
+.global vector_distance
+
+! Define PUSH macro to save registers
+.macro PUSH reg
+    ! Save register on stack
+    sub %sp, 4, %sp             ! Decrement stack pointer (reserve space)
+    st reg, [%sp]              ! Store the register value on the stack
+.endm
+
+! Define POP macro to restore registers
+.macro POP reg
+    ld [%sp], reg              ! Load the register value from the stack
+    add %sp, 4, %sp             ! Increment stack pointer (restore space)
+.endm
+
+! Clear a register (set to zero)
+.macro clr reg
+    mov 0, reg                 ! Set register to zero
+.endm
+
+
+
+.macro set value, reg
+!    .if ((value) & 0xFFFFFC00) == 0      ! Check if the value fits in 13 bits (small constant)
+!        mov value, reg                  ! Use mov for small values
+!    .elseif ((value) & 0x3FF) == 0       ! Check if the low 10 bits are zero (i.e., 1024-byte alignment)
+!        sethi %hi(value), reg           ! Load high 22 bits (no need for OR since %lo(value) == 0)
+!    .else                                 ! For general larger values
+        sethi %hi(value), reg           ! Load high 22 bits
+        or reg, %lo(value), reg        ! Combine with low 10 bits
+!    .endif
+.endm
+
+! Sección de datos
+
+.align 4
+velocities: .word 2, 3, 4, 1    ! Pareja 1: (2, 3), Pareja 2: (4, 1)
+result: .word 0, 0, 0, 0        ! Espacio para las posiciones resultantes
+
+! Sección de texto (código ejecutable)
+
+.global _start
+_start:
+    mov 16, %o0                 ! Tamaño en bytes (2 parejas * 2 valores * 4 bytes)
+    set velocities, %o1         ! Dirección de la lista de velocidades
+    set result, %o2             ! Dirección de la lista de resultados
+    call calculate_positions    ! Llama a la rutina
+    nop
+    nop
+
+! Rutina para calcular las posiciones
+calculate_positions:
+    sub %sp, 16, %sp            ! Allocate space on the stack for %l0-%l3
+    st %l0, [%sp + 0]           ! Save %l0
+    st %l1, [%sp + 4]           ! Save %l1
+    st %l2, [%sp + 8]           ! Save %l2
+    st %l3, [%sp + 12]          ! Save %l3
+
+    clr %l0                     ! Clear index register (i = 0)
+    clr %l1                     ! Clear position x (initial position x = 0)
+    clr %l2                     ! Clear position y (initial position y = 0)
+
+position_loop:
+    ld [%o1 + %l0], %l3         ! Load velocity x into %l3
+    add %l1, %l3, %l1           ! Update position x: x = x + velocity_x
+    st %l1, [%o2 + %l0]         ! Store position x in result[i]
+
+    add %l0, 4, %l0             ! Increment index by 4 (next element: velocity y)
+    ld [%o1 + %l0], %l3         ! Load velocity y into %l3
+    add %l2, %l3, %l2           ! Update position y: y = y + velocity_y
+    st %l2, [%o2 + %l0]         ! Store position y in result[i]
+
+    add %l0, 4, %l0             ! Increment index by 4 (next pair)
+    cmp %l0, %o0                ! Check if i < size (size is in bytes)
+    bl position_loop            ! Continue loop
+    nop
+
+    ld [%sp + 0], %l0           ! Restore %l0
+    ld [%sp + 4], %l1           ! Restore %l1
+    ld [%sp + 8], %l2           ! Restore %l2
+    ld [%sp + 12], %l3          ! Restore %l3
+    add %sp, 16, %sp            ! Deallocate stack space
+
+    retl
+    nop
