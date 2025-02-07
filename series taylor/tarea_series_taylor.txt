@@ -1,0 +1,157 @@
+.global calculate_positions
+.global vector_add
+.global scalar_multiply
+.global vector_subtract
+.global dot_product
+.global vector_norm
+.global vector_distance
+
+! Define PUSH macro to save registers
+.macro PUSH reg
+    ! Save register on stack
+    sub %sp, 4, %sp             ! Decrement stack pointer (reserve space)
+    st reg, [%sp]              ! Store the register value on the stack
+.endm
+
+! Define POP macro to restore registers
+.macro POP reg
+    ld [%sp], reg              ! Load the register value from the stack
+    add %sp, 4, %sp             ! Increment stack pointer (restore space)
+.endm
+
+! Clear a register (set to zero)
+.macro clr reg
+    mov 0, reg                 ! Set register to zero
+.endm
+
+
+
+.macro set value, reg
+!    .if ((value) & 0xFFFFFC00) == 0      ! Check if the value fits in 13 bits (small constant)
+!        mov value, reg                  ! Use mov for small values
+!    .elseif ((value) & 0x3FF) == 0       ! Check if the low 10 bits are zero (i.e., 1024-byte alignment)
+!        sethi %hi(value), reg           ! Load high 22 bits (no need for OR since %lo(value) == 0)
+!    .else                                 ! For general larger values
+        sethi %hi(value), reg           ! Load high 22 bits
+        or reg, %lo(value), reg        ! Combine with low 10 bits
+!    .endif
+.endm
+
+! Sección de datos
+
+.align 4
+x:          .word 0x40000000       ! Valor de x en punto flotante (2.0)
+n:          .word 10               ! Número de términos de la serie
+result:     .word 0                ! Resultado de e^x
+factorial:  .word 1                ! Variable para almacenar n!
+power:      .word 1                ! Variable para almacenar x^n
+
+! Sección de texto (código ejecutable)
+
+.global _start
+_start:
+    set x, %o0                     ! Dirección de x
+    set n, %o1                     ! Dirección de n
+    set result, %o2                ! Dirección de result
+    call taylor_exponential        ! Llama a la rutina
+    nop
+
+! Rutina para calcular la serie de Taylor de e^x
+taylor_exponential:
+    sub %sp, 16, %sp               ! Reserva espacio en la pila
+    st %l0, [%sp + 0]              ! Guarda %l0
+    st %l1, [%sp + 4]              ! Guarda %l1
+    st %l2, [%sp + 8]              ! Guarda %l2
+    st %l3, [%sp + 12]             ! Guarda %l3
+
+    clr %l0                        ! Inicializa el índice (n = 0)
+    clr %l1                        ! Inicializa el resultado (result = 0)
+    ld [%o0], %g2                  ! Carga x en %g2 (registro de punto flotante)
+    ld [%o1], %l2                  ! Carga el número de términos en %l2
+
+taylor_loop:
+    cmp %l0, %l2                   ! Compara el índice con el número de términos
+    bge taylor_end                 ! Si n >= número de términos, termina
+    nop
+
+    ! Calcula x^n
+    mov %g2, %g4                 ! Copia x a %g4
+    call power_function            ! Llama a la rutina para calcular x^n
+    nop
+
+    ! Calcula n!
+    call factorial_function        ! Llama a la rutina para calcular n!
+    nop
+
+    ! Divide x^n / n!
+    sdiv %g4, %g6, %i0            ! %g8 = x^n / n!
+
+    ! Suma al resultado
+    add %i0, %i1, %i1          ! %g10 = result + (x^n / n!)
+
+    add %l0, 1, %l0                ! Incrementa el índice (n = n + 1)
+    ba taylor_loop                 ! Repite el bucle
+    nop
+
+taylor_end:
+    st %i1, [%o2]                 ! Almacena el resultado en result
+    ld [%sp + 0], %l0              ! Restaura %l0
+    ld [%sp + 4], %l1              ! Restaura %l1
+    ld [%sp + 8], %l2              ! Restaura %l2
+    ld [%sp + 12], %l3             ! Restaura %l3
+    add %sp, 16, %sp               ! Libera espacio en la pila
+    retl
+    nop
+
+! Rutina para calcular x^n
+power_function:
+    sub %sp, 8, %sp                ! Reserva espacio en la pila
+    st %l0, [%sp + 0]              ! Guarda %l0
+    st %l1, [%sp + 4]              ! Guarda %l1
+
+    clr %l0                        ! Inicializa el índice (i = 0)
+    mov %g2, %g4                 ! Copia x a %g4
+
+power_loop:
+    cmp %l0, %l2                   ! Compara el índice con el número de términos
+    bge power_end                  ! Si i >= n, termina
+    nop
+
+    smul %g4, %g2, %g4            ! %g4 = %g4 * x
+    add %l0, 1, %l0                ! Incrementa el índice (i = i + 1)
+    ba power_loop                  ! Repite el bucle
+    nop
+
+power_end:
+    ld [%sp + 0], %l0              ! Restaura %l0
+    ld [%sp + 4], %l1              ! Restaura %l1
+    add %sp, 8, %sp                ! Libera espacio en la pila
+    retl
+    nop
+
+! Rutina para calcular n!
+factorial_function:
+    sub %sp, 8, %sp                ! Reserva espacio en la pila
+    st %l0, [%sp + 0]              ! Guarda %l0
+    st %l1, [%sp + 4]              ! Guarda %l1
+
+    clr %l0                        ! Inicializa el índice (i = 1)
+    mov 1, %l1                     ! Inicializa el factorial (factorial = 1)
+
+factorial_loop:
+    cmp %l0, %l2                   ! Compara el índice con n
+    bge factorial_end              ! Si i >= n, termina
+    nop
+
+    add %l0, 1, %l0                ! Incrementa el índice (i = i + 1)
+    smul %l1, %l0, %l1              ! factorial = factorial * i
+    ba factorial_loop              ! Repite el bucle
+    nop
+
+factorial_end:
+    st %l1, [%o2]                  ! Almacena el factorial en result
+    ld [%sp + 0], %l0              ! Restaura %l0
+    ld [%sp + 4], %l1              ! Restaura %l1
+    add %sp, 8, %sp                ! Libera espacio en la pila
+    retl
+    nop
